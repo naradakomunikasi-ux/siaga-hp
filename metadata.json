@@ -1,0 +1,6 @@
+{
+  "name": "SiagaHP",
+  "description": "Deteksi smartphone berbasis Bluetooth sebelum berangkat dengan mobil, lengkap dengan peringatan otomatis saat mesin menyala jika ponsel tertinggal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

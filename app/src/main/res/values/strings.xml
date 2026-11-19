@@ -1,0 +1,70 @@
+<resources>
+    <string name="app_name">SiagaHP</string>
+
+    <!-- Navigation -->
+    <string name="nav_dashboard">Siaga</string>
+    <string name="nav_devices">Perangkat</string>
+    <string name="nav_rules">Aturan &amp; Log</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">SiagaHP</string>
+    <string name="dashboard_subtitle">Radar Keberangkatan Kabin Mobil</string>
+    <string name="action_scan_now">Periksa Kabin Sekarang</string>
+    <string name="action_stop_scan">Hentikan Pemindaian</string>
+    <string name="action_add_phone">Daftarkan Ponsel</string>
+    <string name="action_enable_bt">Aktifkan Bluetooth</string>
+    <string name="action_grant_permission">Berikan Izin</string>
+    <string name="action_test_alert">Uji Peringatan</string>
+    <string name="action_simulate_ignition">Cek Mode Mesin Nyala</string>
+
+    <!-- Status Labels -->
+    <string name="status_all_present">Semua Ponsel Terbawa</string>
+    <string name="status_missing_alert">Ponsel Tidak Terdeteksi!</string>
+    <string name="status_scanning">Memindai Sinyal Bluetooth…</string>
+    <string name="status_standby">Siaga Pemantauan</string>
+    <string name="status_no_phones">Belum Ada Ponsel Terdaftar</string>
+    <string name="status_bt_off">Bluetooth Nonaktif</string>
+    <string name="status_bt_unsupported">Bluetooth Tidak Tersedia</string>
+
+    <!-- Device Management -->
+    <string name="section_registered_phones">Smartphone Terdaftar</string>
+    <string name="section_discovered_devices">Perangkat Bluetooth Sekitar</string>
+    <string name="section_paired_devices">Perangkat Sudah Terpasang (Paired)</string>
+    <string name="action_scan_nearby">Pindai Sekitar</string>
+    <string name="action_add_manual">Tambah MAC Manual</string>
+    <string name="action_register_phone">Pantau HP Ini</string>
+    <string name="action_set_car_bt">Jadikan BT Mobil</string>
+    <string name="label_car_bluetooth">Bluetooth Mobil</string>
+    <string name="label_not_set">Belum dipilih</string>
+
+    <!-- Notifications -->
+    <string name="notif_channel_monitor_name">Layanan Siaga Mobil</string>
+    <string name="notif_channel_monitor_desc">Menjaga pemantauan pemicu mesin mobil tetap aktif di latar belakang.</string>
+    <string name="notif_channel_alert_name">Peringatan HP Tertinggal</string>
+    <string name="notif_channel_alert_desc">Notifikasi prioritas tinggi saat ponsel terdaftar tidak terdeteksi ketika mesin menyala.</string>
+    <string name="notif_channel_safe_name">Konfirmasi Keberangkatan Aman</string>
+    <string name="notif_channel_safe_desc">Notifikasi singkat ketika seluruh ponsel terdaftar sudah terdeteksi di dalam mobil.</string>
+    <string name="notif_monitor_title">SiagaHP Aktif Memantau</string>
+    <string name="notif_monitor_text">Menunggu pemicu mesin mobil menyala untuk memeriksa smartphone terdaftar.</string>
+    <string name="notif_alert_title">Peringatan: Ponsel Tertinggal!</string>
+    <string name="notif_safe_title">Siap Berangkat • Semua HP Terbawa</string>
+    <string name="notif_action_rescan">Pindai Ulang</string>
+    <string name="notif_action_dismiss">Tutup</string>
+
+    <!-- Content Descriptions -->
+    <string name="cd_hero_radar">Ilustrasi radar Bluetooth kabin mobil</string>
+    <string name="cd_phone_icon">Ikon smartphone terdaftar</string>
+    <string name="cd_car_icon">Ikon kendaraan</string>
+    <string name="cd_bluetooth_icon">Ikon Bluetooth</string>
+    <string name="cd_delete_device">Hapus perangkat</string>
+    <string name="cd_edit_device">Ubah detail perangkat</string>
+    <string name="cd_about_app">Tentang aplikasi</string>
+    <string name="cd_miyustudio_logo">Logo MiyuStudio</string>
+
+    <!-- About -->
+    <string name="about_title">Tentang Aplikasi</string>
+    <string name="about_by_credit">by miyustudio</string>
+    <string name="about_website_url">https://MiyuStudio.id</string>
+    <string name="about_visit_website">Kunjungi Website</string>
+    <string name="about_close">Tutup</string>
+</resources>
