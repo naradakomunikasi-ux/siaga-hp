@@ -4,7 +4,8 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 enum class TriggerSource(val label: String) {
-    CAR_BLUETOOTH("Bluetooth Mobil"),
+    ANDROID_AUTO("Android Auto"),
+    CAR_BLUETOOTH("Bluetooth Sentral / Mobil"),
     IGNITION_POWER("Daya Mesin (USB/ACC)"),
     BACKGROUND_PERIODIC("Pemindaian Latar Belakang"),
     MANUAL_SCAN("Cek Manual");
@@ -17,7 +18,7 @@ enum class TriggerSource(val label: String) {
 
 enum class CheckStatus(val label: String) {
     ALL_PRESENT("Semua Terbawa"),
-    MISSING_ALERT("HP Tertinggal"),
+    MISSING_ALERT("Perangkat Tertinggal"),
     BT_UNAVAILABLE("Bluetooth Nonaktif");
 
     companion object {

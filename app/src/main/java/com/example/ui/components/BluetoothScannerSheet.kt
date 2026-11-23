@@ -30,6 +30,8 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.PhoneIphone
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Stop
@@ -46,6 +48,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -83,6 +86,8 @@ fun BluetoothScannerModalSheet(
     onStopScan: () -> Unit,
     onRequestPermissions: () -> Unit,
     onRequestEnableBluetooth: () -> Unit,
+    onPairDevice: (String) -> Unit = {},
+    onOpenBluetoothSettings: () -> Unit = {},
     onQuickAddDevice: (ScannedBluetoothDevice) -> Unit,
     onCustomizeAddDevice: (ScannedBluetoothDevice) -> Unit,
     onBatchAddDevices: (List<ScannedBluetoothDevice>) -> Unit,
@@ -112,6 +117,8 @@ fun BluetoothScannerModalSheet(
             onStopScan = onStopScan,
             onRequestPermissions = onRequestPermissions,
             onRequestEnableBluetooth = onRequestEnableBluetooth,
+            onPairDevice = onPairDevice,
+            onOpenBluetoothSettings = onOpenBluetoothSettings,
             onQuickAddDevice = onQuickAddDevice,
             onCustomizeAddDevice = onCustomizeAddDevice,
             onBatchAddDevices = { selected ->
@@ -138,6 +145,8 @@ fun BluetoothScannerSheetContent(
     onCustomizeAddDevice: (ScannedBluetoothDevice) -> Unit,
     onBatchAddDevices: (List<ScannedBluetoothDevice>) -> Unit,
     onClose: () -> Unit,
+    onPairDevice: (String) -> Unit = {},
+    onOpenBluetoothSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val tokens = SiagaThemeTokens.colors
@@ -442,6 +451,7 @@ fun BluetoothScannerSheetContent(
                         onToggleBatchSelect = { checked ->
                             selectedMacs = if (checked) selectedMacs + mac else selectedMacs - mac
                         },
+                        onPair = { onPairDevice(device.address) },
                         onQuickAdd = {
                             onQuickAddDevice(device)
                             selectedMacs = selectedMacs - mac
@@ -479,6 +489,7 @@ private fun ScannerDeviceRow(
     isAlreadySaved: Boolean,
     isSelectedForBatch: Boolean,
     onToggleBatchSelect: (Boolean) -> Unit,
+    onPair: () -> Unit,
     onQuickAdd: () -> Unit,
     onCustomizeAdd: () -> Unit
 ) {
@@ -540,6 +551,7 @@ private fun ScannerDeviceRow(
                         Icon(
                             imageVector = when {
                                 device.isLikelyCarAudio -> Icons.Rounded.DirectionsCar
+                                device.isAppleDevice -> Icons.Rounded.PhoneIphone
                                 device.isConnected -> Icons.Rounded.BluetoothConnected
                                 else -> Icons.Rounded.Bluetooth
                             },
@@ -552,8 +564,22 @@ private fun ScannerDeviceRow(
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
+                        if (device.isAppleDevice) {
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = if (device.isBonded) "iOS Paired" else "iPhone",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                     }
                     Text(
                         text = mac,
@@ -579,6 +605,23 @@ private fun ScannerDeviceRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End
             ) {
+                if (!device.isBonded && device.isAppleDevice) {
+                    OutlinedButton(
+                        onClick = onPair,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.testTag("scanner_pair_device_$mac")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Link,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Pasangkan", style = MaterialTheme.typography.labelMedium)
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+
                 if (isAlreadySaved) {
                     Surface(
                         shape = RoundedCornerShape(999.dp),

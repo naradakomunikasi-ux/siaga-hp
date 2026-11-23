@@ -19,8 +19,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BluetoothSearching
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.DevicesOther
 import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.PhoneIphone
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material.icons.rounded.TabletAndroid
 import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material.icons.rounded.Watch
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,6 +45,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.data.local.PhoneCategory
 import com.example.ui.MonitoredPhoneUiItem
 import com.example.ui.PhonePresenceStatus
 import com.example.ui.theme.SiagaThemeTokens
@@ -47,6 +55,8 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 enum class RadarVisualState {
@@ -306,12 +316,43 @@ fun SignalStrengthIndicator(
     }
 }
 
-fun formatRssiQuality(rssi: Int?): String = when {
-    rssi == null -> "Belum ada sinyal"
-    rssi >= -60 -> "Sangat dekat (Dalam kabin)"
-    rssi >= -74 -> "Dekat (Dalam kabin)"
-    rssi >= -86 -> "Jarak sedang (Tepi mobil)"
-    else -> "Sinyal lemah (Kemungkinan jauh)"
+/**
+ * Estimates approximate physical distance (in meters) from Bluetooth RSSI using the
+ * log-distance path-loss model tuned for indoor/vehicle environments (TxPower ≈ -59 dBm, n ≈ 2.5).
+ */
+fun estimateDistanceMeters(rssi: Int): Double {
+    return 10.0.pow((-59.0 - rssi) / 25.0).coerceIn(0.3, 30.0)
+}
+
+fun formatDistanceMeters(rssi: Int?): String {
+    if (rssi == null) return ""
+    val meters = estimateDistanceMeters(rssi)
+    val idLocale = Locale.Builder().setLanguage("id").setRegion("ID").build()
+    return if (meters < 10.0) {
+        String.format(idLocale, "± %.1f m", meters)
+    } else {
+        String.format(idLocale, "± %d m", meters.roundToInt())
+    }
+}
+
+fun categoryIcon(category: PhoneCategory, isApple: Boolean = false): ImageVector = when (category) {
+    PhoneCategory.SMARTPHONE -> if (isApple) Icons.Rounded.PhoneIphone else Icons.Rounded.Smartphone
+    PhoneCategory.SMARTWATCH -> Icons.Rounded.Watch
+    PhoneCategory.TABLET -> Icons.Rounded.TabletAndroid
+    PhoneCategory.CAR_HEADUNIT -> Icons.Rounded.DirectionsCar
+    PhoneCategory.AUDIO -> Icons.Rounded.Headphones
+    PhoneCategory.OTHER -> Icons.Rounded.DevicesOther
+}
+
+fun formatRssiQuality(rssi: Int?): String {
+    if (rssi == null) return "Belum ada sinyal"
+    val dist = formatDistanceMeters(rssi)
+    return when {
+        rssi >= -60 -> "Sangat dekat Sentral ($dist)"
+        rssi >= -74 -> "Dekat Sentral ($dist)"
+        rssi >= -86 -> "Radius sedang Sentral ($dist)"
+        else -> "Radius luas dari Sentral ($dist)"
+    }
 }
 
 fun formatRelativeTime(timestamp: Long?): String {

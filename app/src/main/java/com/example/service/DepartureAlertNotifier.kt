@@ -29,6 +29,7 @@ class DepartureAlertNotifier(private val context: Context) {
         const val CHANNEL_ALL_SAFE = "siagahp_safe_channel"
 
         const val NOTIF_ID_MONITOR = 1001
+        const val NOTIF_ID_ANDROID_AUTO = 1002
         const val NOTIF_ID_MISSING_ALERT = 2002
         const val NOTIF_ID_ALL_SAFE = 2003
 
@@ -123,6 +124,50 @@ class DepartureAlertNotifier(private val context: Context) {
             .build()
     }
 
+    fun buildAndroidAutoForegroundNotification(
+        statusText: String,
+        isConnected: Boolean
+    ): Notification {
+        val openIntent = PendingIntent.getActivity(
+            context,
+            12,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val scanNowIntent = PendingIntent.getBroadcast(
+            context,
+            13,
+            Intent(context, CarIgnitionReceiver::class.java).apply {
+                action = ACTION_TRIGGER_DEPARTURE_CHECK
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = if (isConnected) {
+            "SiagaHP • Android Auto Terhubung"
+        } else {
+            "SiagaHP • Deteksi Android Auto Aktif"
+        }
+
+        return NotificationCompat.Builder(context, CHANNEL_MONITOR)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(statusText)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(openIntent)
+            .addAction(
+                android.R.drawable.ic_menu_search,
+                context.getString(R.string.notif_action_rescan),
+                scanNowIntent
+            )
+            .build()
+    }
+
     fun showMissingPhonesAlert(
         missingPhoneLabels: List<String>,
         triggerSource: TriggerSource,
@@ -130,7 +175,7 @@ class DepartureAlertNotifier(private val context: Context) {
         speakVoice: Boolean
     ) {
         val missingJoined = missingPhoneLabels.joinToString(", ")
-        val bodyText = "Tidak terdeteksi di mobil (${triggerSource.label}): $missingJoined. Pastikan ponsel tidak tertinggal di rumah!"
+        val bodyText = "Tidak terdeteksi di dekat sentral (${triggerSource.label}): $missingJoined. Pastikan perangkat Anda tidak tertinggal!"
 
         if (BluetoothPermissionHelper.hasNotificationPermission(context)) {
             val openIntent = PendingIntent.getActivity(
@@ -167,6 +212,7 @@ class DepartureAlertNotifier(private val context: Context) {
                 .setStyle(NotificationCompat.BigTextStyle().bigText(bodyText))
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setAutoCancel(true)
                 .setContentIntent(openIntent)
                 .addAction(
@@ -194,7 +240,7 @@ class DepartureAlertNotifier(private val context: Context) {
 
         if (speakVoice) {
             speakIndonesian(
-                "Perhatian! Ponsel $missingJoined tidak terdeteksi di dalam mobil. Mohon periksa sebelum berangkat."
+                "Perhatian! Perangkat $missingJoined tidak terdeteksi dalam jangkauan. Mohon periksa sebelum berangkat."
             )
         }
     }
@@ -218,8 +264,9 @@ class DepartureAlertNotifier(private val context: Context) {
         val notification = NotificationCompat.Builder(context, CHANNEL_ALL_SAFE)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(context.getString(R.string.notif_safe_title))
-            .setContentText("$detectedCount smartphone terdaftar terdeteksi via ${triggerSource.label}. Selamat berkendara!")
+            .setContentText("$detectedCount perangkat terdaftar terdeteksi via ${triggerSource.label}. Siap berangkat!")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(openIntent)
             .build()
@@ -233,8 +280,8 @@ class DepartureAlertNotifier(private val context: Context) {
 
     fun showTestAlert(vibrate: Boolean, speakVoice: Boolean) {
         showMissingPhonesAlert(
-            missingPhoneLabels = listOf("Contoh: Ponsel Utama"),
-            triggerSource = TriggerSource.IGNITION_POWER,
+            missingPhoneLabels = listOf("Contoh: Perangkat Utama"),
+            triggerSource = TriggerSource.ANDROID_AUTO,
             vibrate = vibrate,
             speakVoice = speakVoice
         )

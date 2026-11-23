@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.BluetoothDisabled
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Power
@@ -78,6 +79,8 @@ fun RulesAndLogsScreen(
     onSelectScanPowerProfile: (ScanPowerProfile) -> Unit,
     onSelectPeriodicInterval: (Int) -> Unit,
     onToggleCarBtTrigger: (Boolean) -> Unit,
+    onToggleAndroidAutoTrigger: (Boolean) -> Unit = {},
+    onTriggerAndroidAutoScan: () -> Unit = {},
     onTogglePowerTrigger: (Boolean) -> Unit,
     onScanDurationChange: (Int) -> Unit,
     onToggleVoiceAlert: (Boolean) -> Unit,
@@ -177,7 +180,7 @@ fun RulesAndLogsScreen(
                             SettingsSwitchRow(
                                 icon = Icons.Rounded.Bluetooth,
                                 title = "Pemindaian Berkala (BluetoothAdapter)",
-                                subtitle = "Pindai sinyal ponsel terdaftar secara rutin di latar belakang",
+                                subtitle = "Pindai sinyal perangkat terdaftar secara rutin di latar belakang",
                                 checked = settings.periodicBackgroundScanEnabled,
                                 onCheckedChange = onTogglePeriodicScan,
                                 testTag = "switch_periodic_bg_scan"
@@ -301,19 +304,95 @@ fun RulesAndLogsScreen(
                 ) {
                     Column(modifier = Modifier.padding(vertical = 8.dp)) {
                         Text(
-                            text = "Pemicu Mesin Mobil Menyala",
+                            text = "Pemicu Otomatis & Android Auto",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
                         )
 
+                        val autoService = uiState.androidAutoServiceState
+                        SettingsSwitchRow(
+                            icon = Icons.Rounded.DirectionsCar,
+                            title = when {
+                                uiState.androidAutoState.isConnected -> "Service Android Auto (Terhubung)"
+                                autoService.isServiceRunning -> "Service Android Auto (Aktif)"
+                                else -> "Service Android Auto (Car Mode)"
+                            },
+                            subtitle = "Service khusus mendeteksi Android Auto / Car Mode lalu otomatis memindai semua perangkat terdaftar (HP, jam tangan, tablet, dll.).",
+                            checked = settings.triggerOnAndroidAuto,
+                            onCheckedChange = onToggleAndroidAutoTrigger,
+                            testTag = "switch_android_auto_trigger"
+                        )
+
+                        if (settings.triggerOnAndroidAuto) {
+                            Surface(
+                                shape = MaterialTheme.shapes.medium,
+                                color = if (uiState.androidAutoState.isConnected) {
+                                    tokens.safeContainer.copy(alpha = 0.7f)
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                },
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (uiState.androidAutoState.isConnected) tokens.safe.copy(alpha = 0.5f)
+                                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                                    .testTag("android_auto_service_status_box")
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = autoService.lastAutoScanSummaryText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (uiState.androidAutoState.isConnected) {
+                                            tokens.onSafeContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    )
+                                    OutlinedButton(
+                                        onClick = onTriggerAndroidAutoScan,
+                                        enabled = !autoService.isAutoScanInProgress && !uiState.isScanningCabin,
+                                        shape = MaterialTheme.shapes.medium,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("test_android_auto_scan_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.DirectionsCar,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (autoService.isAutoScanInProgress) {
+                                                "Menjalankan Scan Android Auto…"
+                                            } else {
+                                                "Uji Pemicu Scan Android Auto"
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant
+                        )
+
                         SettingsSwitchRow(
                             icon = Icons.Rounded.Bluetooth,
-                            title = "Koneksi Bluetooth Mobil",
+                            title = "Koneksi Perangkat Sentral",
                             subtitle = if (settings.carBluetoothName.isNotBlank()) {
-                                "Memicu cek otomatis saat tersambung ke ${settings.carBluetoothName}"
+                                "Memicu cek otomatis saat tersambung ke Sentral: ${settings.carBluetoothName}"
                             } else {
-                                "Memicu cek otomatis saat perangkat audio/head unit mobil terhubung"
+                                "Memicu cek otomatis saat tersambung ke head unit mobil atau perangkat sentral"
                             },
                             checked = settings.triggerOnCarBluetooth,
                             onCheckedChange = onToggleCarBtTrigger,
@@ -351,7 +430,7 @@ fun RulesAndLogsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Durasi Pemindaian Kabin",
+                                    text = "Durasi Pemindaian Bluetooth",
                                     style = MaterialTheme.typography.titleSmall,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -362,7 +441,7 @@ fun RulesAndLogsScreen(
                                 )
                             }
                             Text(
-                                text = "Waktu tunggu mencari sinyal Bluetooth ponsel sebelum menyimpulkan tertinggal.",
+                                text = "Waktu tunggu mencari sinyal perangkat di sekitar Sentral sebelum menyimpulkan tertinggal.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -397,7 +476,7 @@ fun RulesAndLogsScreen(
                         SettingsSwitchRow(
                             icon = Icons.Rounded.RecordVoiceOver,
                             title = "Peringatan Suara (Bahasa Indonesia)",
-                            subtitle = "Membacakan nama ponsel yang tertinggal lewat speaker secara otomatis",
+                            subtitle = "Membacakan nama perangkat yang tertinggal lewat speaker secara otomatis",
                             checked = settings.voiceAlertEnabled,
                             onCheckedChange = onToggleVoiceAlert,
                             testTag = "switch_voice_alert"
@@ -411,7 +490,7 @@ fun RulesAndLogsScreen(
                         SettingsSwitchRow(
                             icon = Icons.Rounded.Vibration,
                             title = "Getar Pola Darurat",
-                            subtitle = "Bergetar berulang saat ponsel terdaftar tidak terdeteksi",
+                            subtitle = "Bergetar berulang saat perangkat terdaftar tidak terdeteksi",
                             checked = settings.vibrateAlertEnabled,
                             onCheckedChange = onToggleVibrateAlert,
                             testTag = "switch_vibrate_alert"
@@ -425,7 +504,7 @@ fun RulesAndLogsScreen(
                         SettingsSwitchRow(
                             icon = Icons.Rounded.NotificationsActive,
                             title = "Notifikasi Konfirmasi Aman",
-                            subtitle = "Tampilkan notifikasi singkat saat semua smartphone terbawa",
+                            subtitle = "Tampilkan notifikasi singkat saat semua perangkat terbawa",
                             checked = settings.notifyWhenAllSafe,
                             onCheckedChange = onToggleSafeNotif,
                             testTag = "switch_safe_notif"
@@ -657,7 +736,7 @@ private fun CheckLogCard(log: CheckLogEntity) {
                         color = accent
                     )
                     Text(
-                        text = "${log.detectedCount}/${log.totalMonitored} HP",
+                        text = "${log.detectedCount}/${log.totalMonitored} perangkat",
                         style = TelemetryMonoStyle,
                         color = MaterialTheme.colorScheme.onSurface
                     )

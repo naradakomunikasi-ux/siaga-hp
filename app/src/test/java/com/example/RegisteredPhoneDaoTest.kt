@@ -57,21 +57,21 @@ class RegisteredPhoneDaoTest {
                 macAddress = "aa:bb:cc:11:22:33",
                 deviceName = "Pixel 9",
                 ownerLabel = "HP Utama",
-                category = PhoneCategory.PRIMARY.name,
+                category = PhoneCategory.SMARTPHONE.name,
                 isMonitored = true
             ),
             RegisteredPhoneEntity(
                 macAddress = "dd:ee:ff:44:55:66",
-                deviceName = "Galaxy S24",
-                ownerLabel = "HP Kerja",
-                category = PhoneCategory.WORK.name,
+                deviceName = "HUAWEI WATCH GT",
+                ownerLabel = "Jam Tangan",
+                category = PhoneCategory.SMARTWATCH.name,
                 isMonitored = true
             ),
             RegisteredPhoneEntity(
                 macAddress = "11:22:33:aa:bb:cc",
-                deviceName = "iPhone 16",
-                ownerLabel = "HP Cadangan",
-                category = PhoneCategory.BACKUP.name,
+                deviceName = "iPad Air",
+                ownerLabel = "Tablet Kerja",
+                category = PhoneCategory.TABLET.name,
                 isMonitored = false
             )
         )
@@ -95,7 +95,7 @@ class RegisteredPhoneDaoTest {
             macAddress = "aa-bb-cc-99-88-77",
             deviceName = "Pixel 9",
             ownerLabel = "HP Utama",
-            category = PhoneCategory.PRIMARY,
+            category = PhoneCategory.SMARTPHONE,
             rssiThreshold = -85,
             isMonitored = true
         )
@@ -108,7 +108,7 @@ class RegisteredPhoneDaoTest {
             macAddress = "aa:bb:cc:99:88:77",
             deviceName = "Pixel 9 Pro",
             ownerLabel = "HP Utama Baru",
-            category = PhoneCategory.WORK,
+            category = PhoneCategory.TABLET,
             rssiThreshold = -78,
             isMonitored = true
         )
@@ -128,13 +128,13 @@ class RegisteredPhoneDaoTest {
             macAddress = "10:20:30:40:50:60",
             deviceName = "Phone A",
             ownerLabel = "Ponsel A",
-            category = PhoneCategory.PRIMARY
+            category = PhoneCategory.SMARTPHONE
         )
         repository.registerOrUpdatePhone(
             macAddress = "70:80:90:A0:B0:C0",
             deviceName = "Phone B",
             ownerLabel = "Ponsel B",
-            category = PhoneCategory.FAMILY
+            category = PhoneCategory.AUDIO
         )
 
         repository.togglePhoneMonitored("10:20:30:40:50:60", false)

@@ -30,9 +30,15 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.NetworkCheck
+import androidx.compose.material.icons.rounded.PhoneIphone
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SettingsBluetooth
 import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -63,12 +69,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.bluetooth.AppleBluetoothHelper
 import com.example.bluetooth.ScannedBluetoothDevice
 import com.example.data.local.PhoneCategory
 import com.example.data.local.RegisteredPhoneEntity
 import com.example.ui.SiagaUiState
 import com.example.ui.components.BluetoothScannerModalSheet
 import com.example.ui.components.SignalStrengthIndicator
+import com.example.ui.components.categoryIcon
+import com.example.ui.components.formatDistanceMeters
 import com.example.ui.components.formatRssiQuality
 import com.example.ui.theme.SiagaThemeTokens
 import com.example.ui.theme.TelemetryMonoStyle
@@ -92,7 +101,11 @@ fun DevicesScreen(
     onBatchRegisterDevices: (List<ScannedBluetoothDevice>) -> Unit,
     onDeletePhone: (String) -> Unit,
     onSetCarBluetooth: (String, String) -> Unit,
+    onPromoteToCentral: (String, String) -> Unit = onSetCarBluetooth,
     onClearCarBluetooth: () -> Unit,
+    onPairDevice: (String) -> Unit = {},
+    onTestPhoneConnection: (String, String) -> Unit = { _, _ -> },
+    onOpenBluetoothSettings: () -> Unit = {},
     onRequestPermissions: () -> Unit,
     onRequestEnableBluetooth: () -> Unit,
     modifier: Modifier = Modifier
@@ -106,6 +119,9 @@ fun DevicesScreen(
 
     val registeredMacs = remember(uiState.phones) {
         uiState.phones.map { it.entity.macAddress.uppercase() }.toSet()
+    }
+    val pairedMacs = remember(uiState.btState.pairedDevices) {
+        uiState.btState.pairedDevices.map { it.address.uppercase() }.toSet()
     }
 
     Box(
@@ -132,7 +148,7 @@ fun DevicesScreen(
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
-                            text = "Pilih smartphone yang dipantau & Bluetooth mobil pemicu",
+                            text = "Atur perangkat Sentral (pemicu) & perangkat Bluetooth yang dipantau",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -192,6 +208,13 @@ fun DevicesScreen(
                 )
             }
 
+            // iPhone / iOS Compatibility & Pairing Helper Card
+            item {
+                IphoneConnectionGuideCard(
+                    onOpenBluetoothSettings = onOpenBluetoothSettings
+                )
+            }
+
             // Registered Smartphones Section
             item {
                 Text(
@@ -221,12 +244,12 @@ fun DevicesScreen(
                                 modifier = Modifier.size(32.dp)
                             )
                             Text(
-                                text = "Belum ada smartphone terdaftar",
+                                text = "Belum ada perangkat dipantau",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Pilih dari perangkat Bluetooth di bawah atau tekan tombol + MAC untuk mendaftarkan ponsel secara manual.",
+                                text = "Pindai perangkat Bluetooth (HP, jam tangan, tablet, dll.) di bawah atau tekan tombol + MAC.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -238,8 +261,20 @@ fun DevicesScreen(
                     items = uiState.phones,
                     key = { "reg_${it.entity.macAddress}" }
                 ) { item ->
+                    val mac = item.entity.macAddress.uppercase()
+                    val isBonded = mac in pairedMacs
+                    val isLikelyIphone = AppleBluetoothHelper.isLikelyAppleDevice(item.entity.deviceName) ||
+                        AppleBluetoothHelper.isLikelyAppleDevice(item.entity.ownerLabel) ||
+                        uiState.btState.discoveredDevices[mac]?.isAppleDevice == true
                     RegisteredPhoneManageCard(
                         entity = item.entity,
+                        isBonded = isBonded,
+                        isLikelyIphone = isLikelyIphone,
+                        onPair = { onPairDevice(item.entity.macAddress) },
+                        onPromoteToCentral = {
+                            onPromoteToCentral(item.entity.macAddress, item.entity.ownerLabel.ifBlank { item.entity.deviceName })
+                        },
+                        onTestPing = { onTestPhoneConnection(item.entity.macAddress, item.entity.ownerLabel) },
                         onEdit = { editingPhone = item.entity },
                         onDelete = { onDeletePhone(item.entity.macAddress) }
                     )
@@ -394,6 +429,7 @@ fun DevicesScreen(
                         device = device,
                         isRegisteredPhone = isRegistered,
                         isSelectedCarBt = isCarBt,
+                        onPair = { onPairDevice(device.address) },
                         onRegisterAsPhone = { pendingRegisterDevice = device },
                         onSelectAsCarBt = { onSetCarBluetooth(device.address, device.name) }
                     )
@@ -413,6 +449,8 @@ fun DevicesScreen(
             onStopScan = onStopScan,
             onRequestPermissions = onRequestPermissions,
             onRequestEnableBluetooth = onRequestEnableBluetooth,
+            onPairDevice = onPairDevice,
+            onOpenBluetoothSettings = onOpenBluetoothSettings,
             onQuickAddDevice = onQuickRegisterDevice,
             onCustomizeAddDevice = { device ->
                 showScannerSheet = false
@@ -423,17 +461,23 @@ fun DevicesScreen(
         )
     }
 
-    // Dialog: Register discovered device as monitored phone
+    // Dialog: Register discovered device as monitored Bluetooth device
     pendingRegisterDevice?.let { device ->
+        val defaultThreshold = if (device.isAppleDevice || AppleBluetoothHelper.isLikelyAppleDevice(device.name)) -95 else -88
+        val inferredCategory = PhoneCategory.inferFromDevice(device.name, device.isLikelyCarAudio)
         PhoneRegistrationDialog(
-            title = "Daftarkan Smartphone",
+            title = "Daftarkan Perangkat",
             initialMac = device.address,
             macEditable = false,
             initialDeviceName = device.name,
             initialOwnerLabel = device.name,
-            initialCategory = PhoneCategory.PRIMARY,
-            initialRssiThreshold = -88,
+            initialCategory = inferredCategory,
+            initialRssiThreshold = defaultThreshold,
             onDismiss = { pendingRegisterDevice = null },
+            onPromoteToCentral = { mac, label ->
+                onPromoteToCentral(mac, label)
+                pendingRegisterDevice = null
+            },
             onConfirm = { mac, devName, owner, cat, threshold ->
                 onRegisterOrUpdatePhone(mac, devName, owner, cat, threshold, true)
                 pendingRegisterDevice = null
@@ -441,10 +485,10 @@ fun DevicesScreen(
         )
     }
 
-    // Dialog: Edit existing registered phone
+    // Dialog: Edit existing registered device
     editingPhone?.let { existing ->
         PhoneRegistrationDialog(
-            title = "Ubah Detail Smartphone",
+            title = "Ubah Detail Perangkat",
             initialMac = existing.macAddress,
             macEditable = false,
             initialDeviceName = existing.deviceName,
@@ -452,6 +496,10 @@ fun DevicesScreen(
             initialCategory = PhoneCategory.fromName(existing.category),
             initialRssiThreshold = existing.rssiThreshold,
             onDismiss = { editingPhone = null },
+            onPromoteToCentral = { mac, label ->
+                onPromoteToCentral(mac, label)
+                editingPhone = null
+            },
             onConfirm = { mac, devName, owner, cat, threshold ->
                 onRegisterOrUpdatePhone(mac, devName, owner, cat, threshold, existing.isMonitored)
                 editingPhone = null
@@ -462,14 +510,18 @@ fun DevicesScreen(
     // Dialog: Manual MAC address entry
     if (showManualDialog) {
         PhoneRegistrationDialog(
-            title = "Tambah Smartphone (MAC Manual)",
+            title = "Tambah Perangkat (MAC Manual)",
             initialMac = "",
             macEditable = true,
             initialDeviceName = "",
             initialOwnerLabel = "",
-            initialCategory = PhoneCategory.PRIMARY,
+            initialCategory = PhoneCategory.SMARTPHONE,
             initialRssiThreshold = -88,
             onDismiss = { showManualDialog = false },
+            onPromoteToCentral = { mac, label ->
+                onPromoteToCentral(mac, label)
+                showManualDialog = false
+            },
             onConfirm = { mac, devName, owner, cat, threshold ->
                 onRegisterOrUpdatePhone(mac, devName, owner, cat, threshold, true)
                 showManualDialog = false
@@ -514,7 +566,7 @@ private fun CarBluetoothAssignmentCard(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.DirectionsCar,
+                    imageVector = Icons.Rounded.Hub,
                     contentDescription = stringResource(R.string.cd_car_icon),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
@@ -522,7 +574,7 @@ private fun CarBluetoothAssignmentCard(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Bluetooth Head Unit Mobil (Pemicu)",
+                    text = "Perangkat Sentral / Pemicu",
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -533,13 +585,13 @@ private fun CarBluetoothAssignmentCard(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = carAddress,
+                        text = "$carAddress • Pemicu scan (tidak dihitung barang bawaan)",
                         style = TelemetryMonoStyle,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
                     Text(
-                        text = "Mode Otomatis — pilih 'BT Mobil' pada perangkat head unit Anda di bawah untuk pemicu spesifik.",
+                        text = "Mode Otomatis — jadikan head unit mobil (cth: Red Cross) sebagai Sentral agar memicu scan dan tidak ikut dipantau sebagai barang bawaan.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -552,7 +604,7 @@ private fun CarBluetoothAssignmentCard(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
-                        contentDescription = "Hapus pilihan Bluetooth mobil"
+                        contentDescription = "Hapus pilihan Perangkat Sentral"
                     )
                 }
             }
@@ -561,77 +613,261 @@ private fun CarBluetoothAssignmentCard(
 }
 
 @Composable
+private fun IphoneConnectionGuideCard(
+    onOpenBluetoothSettings: () -> Unit
+) {
+    val tokens = SiagaThemeTokens.colors
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, tokens.radarAccent.copy(alpha = 0.4f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("iphone_connection_guide_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PhoneIphone,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Mode Kompatibilitas iPhone (iOS)",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Pasangkan (Pair) iPhone 1x agar SiagaHP bisa ping BLE GATT + IRK saat layar iPhone terkunci dan alamat BLE berubah.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            OutlinedButton(
+                onClick = onOpenBluetoothSettings,
+                shape = MaterialTheme.shapes.medium,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("open_bt_settings_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.SettingsBluetooth,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Buka Pengaturan Bluetooth (Pairing iPhone)")
+            }
+        }
+    }
+}
+
+@Composable
 private fun RegisteredPhoneManageCard(
     entity: RegisteredPhoneEntity,
+    isBonded: Boolean,
+    isLikelyIphone: Boolean,
+    onPair: () -> Unit,
+    onPromoteToCentral: () -> Unit,
+    onTestPing: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val tokens = SiagaThemeTokens.colors
     val category = PhoneCategory.fromName(entity.category)
+    val distanceLabel = formatDistanceMeters(entity.rssiThreshold)
+
     Card(
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Smartphone,
-                    contentDescription = stringResource(R.string.cd_phone_icon),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = categoryIcon(category, isLikelyIphone),
+                        contentDescription = stringResource(R.string.cd_phone_icon),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = entity.ownerLabel,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (isLikelyIphone) {
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = if (isBonded) tokens.safeContainer else tokens.warningContainer
+                            ) {
+                                Text(
+                                    text = if (isBonded) "iOS Stabil" else "iOS",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isBonded) tokens.onSafeContainer else tokens.onWarningContainer,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "${category.label} • ${entity.deviceName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${entity.macAddress} • ${entity.rssiThreshold} dBm ($distanceLabel)",
+                        style = TelemetryMonoStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(
+                    onClick = onEdit,
+                    modifier = Modifier.testTag("edit_phone_${entity.macAddress}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Edit,
+                        contentDescription = stringResource(R.string.cd_edit_device)
+                    )
+                }
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.testTag("delete_phone_${entity.macAddress}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.DeleteOutline,
+                        contentDescription = stringResource(R.string.cd_delete_device),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
             }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = entity.ownerLabel,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${category.label} • ${entity.deviceName}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${entity.macAddress} • Batas ${entity.rssiThreshold} dBm",
-                    style = TelemetryMonoStyle,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+
+            if (isLikelyIphone && !isBonded) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = tokens.warningContainer,
+                    border = BorderStroke(1.dp, tokens.warning.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.WarningAmber,
+                            contentDescription = null,
+                            tint = tokens.warning,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "iPhone belum dipasangkan — pasangkan agar BLE Keep-Alive & deteksi stabil saat layar terkunci.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.onWarningContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = onPair,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.testTag("pair_registered_${entity.macAddress}")
+                        ) {
+                            Text("Pasangkan")
+                        }
+                    }
+                }
             }
-            IconButton(
-                onClick = onEdit,
-                modifier = Modifier.testTag("edit_phone_${entity.macAddress}")
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Edit,
-                    contentDescription = stringResource(R.string.cd_edit_device)
-                )
-            }
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.testTag("delete_phone_${entity.macAddress}")
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.DeleteOutline,
-                    contentDescription = stringResource(R.string.cd_delete_device),
-                    tint = MaterialTheme.colorScheme.error
-                )
+                OutlinedButton(
+                    onClick = onPromoteToCentral,
+                    shape = MaterialTheme.shapes.medium,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("promote_central_${entity.macAddress}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Hub,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "Jadikan Sentral",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                OutlinedButton(
+                    onClick = onTestPing,
+                    shape = MaterialTheme.shapes.medium,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("ping_phone_${entity.macAddress}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.NetworkCheck,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = if (isLikelyIphone) "Uji Ping iPhone" else "Uji Ping",
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
@@ -642,6 +878,7 @@ private fun DiscoveredBluetoothDeviceCard(
     device: ScannedBluetoothDevice,
     isRegisteredPhone: Boolean,
     isSelectedCarBt: Boolean,
+    onPair: () -> Unit,
     onRegisterAsPhone: () -> Unit,
     onSelectAsCarBt: () -> Unit
 ) {
@@ -676,22 +913,46 @@ private fun DiscoveredBluetoothDeviceCard(
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
+                    val guessedCategory = PhoneCategory.inferFromDevice(device.name, device.isLikelyCarAudio)
                     Icon(
-                        imageVector = if (device.isLikelyCarAudio) Icons.Rounded.DirectionsCar else Icons.Rounded.Bluetooth,
+                        imageVector = categoryIcon(guessedCategory, device.isAppleDevice),
                         contentDescription = stringResource(R.string.cd_bluetooth_icon),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = device.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (device.isAppleDevice) {
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = if (device.isBonded) "iOS Paired" else "iPhone / Apple",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
                     Text(
-                        text = device.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = device.address,
+                        text = if (device.rssi != null) {
+                            "${device.address} • ${formatDistanceMeters(device.rssi)}"
+                        } else {
+                            device.address
+                        },
                         style = TelemetryMonoStyle,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -707,42 +968,63 @@ private fun DiscoveredBluetoothDeviceCard(
             ) {
                 FilledTonalButton(
                     onClick = onRegisterAsPhone,
-                    enabled = !isRegisteredPhone,
+                    enabled = !isRegisteredPhone && !isSelectedCarBt,
                     modifier = Modifier
                         .weight(1f)
                         .testTag("register_device_${device.address}")
                 ) {
                     Icon(
-                        imageVector = if (isRegisteredPhone) Icons.Rounded.Check else Icons.Rounded.Smartphone,
+                        imageVector = if (isRegisteredPhone) Icons.Rounded.Check else Icons.Rounded.Bluetooth,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (isRegisteredPhone) "Terdaftar" else stringResource(R.string.action_register_phone),
+                        text = if (isRegisteredPhone) "Dipantau" else stringResource(R.string.action_register_phone),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                OutlinedButton(
-                    onClick = onSelectAsCarBt,
-                    enabled = !isSelectedCarBt,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("set_car_bt_${device.address}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.DirectionsCar,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isSelectedCarBt) "BT Mobil ✓" else stringResource(R.string.action_set_car_bt),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                if (!device.isBonded && device.isAppleDevice) {
+                    OutlinedButton(
+                        onClick = onPair,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("pair_device_${device.address}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Link,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Pasangkan",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onSelectAsCarBt,
+                        enabled = !isSelectedCarBt,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("set_car_bt_${device.address}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Hub,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isSelectedCarBt) "Sentral ✓" else stringResource(R.string.action_set_car_bt),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
@@ -760,6 +1042,7 @@ private fun PhoneRegistrationDialog(
     initialCategory: PhoneCategory,
     initialRssiThreshold: Int,
     onDismiss: () -> Unit,
+    onPromoteToCentral: ((mac: String, label: String) -> Unit)? = null,
     onConfirm: (
         mac: String,
         deviceName: String,
@@ -783,7 +1066,7 @@ private fun PhoneRegistrationDialog(
                 OutlinedTextField(
                     value = ownerLabelInput,
                     onValueChange = { ownerLabelInput = it },
-                    label = { Text("Label Ponsel (cth: HP Utama / HP Kerja)") },
+                    label = { Text("Label Perangkat (cth: HP Saya / Jam Huawei)") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -824,31 +1107,92 @@ private fun PhoneRegistrationDialog(
                 }
 
                 Text(
-                    text = "Kategori",
+                    text = "Kategori Perangkat",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     PhoneCategory.entries.forEach { cat ->
                         FilterChip(
                             selected = selectedCategory == cat,
                             onClick = { selectedCategory = cat },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = categoryIcon(cat),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
                             label = { Text(cat.label) }
                         )
                     }
                 }
 
+                if (selectedCategory == PhoneCategory.CAR_HEADUNIT && onPromoteToCentral != null) {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Head unit mobil sebaiknya dijadikan Perangkat Sentral (pemicu scan), bukan barang bawaan yang dipantau.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            TextButton(
+                                onClick = {
+                                    val normalizedMac = RegisteredPhoneEntity.normalizeMacAddress(macInput)
+                                    if (macEditable && !RegisteredPhoneEntity.isValidMacAddress(normalizedMac)) {
+                                        macError = "Format MAC harus seperti AA:BB:CC:11:22:33"
+                                        return@TextButton
+                                    }
+                                    val finalLabel = ownerLabelInput.trim().ifBlank {
+                                        deviceNameInput.trim().ifBlank { "Perangkat Sentral" }
+                                    }
+                                    onPromoteToCentral(normalizedMac, finalLabel)
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.testTag("dialog_promote_central_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Hub,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Jadikan Perangkat Sentral")
+                            }
+                        }
+                    }
+                }
+
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Radius Jarak Sentral",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "$rssiThreshold dBm • ${formatDistanceMeters(rssiThreshold)}",
+                            style = TelemetryMonoStyle,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     Text(
-                        text = "Sensitivitas Jarak Kabin: $rssiThreshold dBm",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = formatRssiQuality(rssiThreshold),
+                        text = "${formatRssiQuality(rssiThreshold)} — jarak dari titik sentral (mobil, tas, atau hub), tidak harus selalu di dalam kabin.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -869,7 +1213,7 @@ private fun PhoneRegistrationDialog(
                         return@Button
                     }
                     val finalLabel = ownerLabelInput.trim().ifBlank {
-                        deviceNameInput.trim().ifBlank { "Smartphone Terdaftar" }
+                        deviceNameInput.trim().ifBlank { selectedCategory.label }
                     }
                     val finalDeviceName = deviceNameInput.trim().ifBlank { finalLabel }
                     onConfirm(normalizedMac, finalDeviceName, finalLabel, selectedCategory, rssiThreshold)

@@ -2,6 +2,7 @@ package com.example.service
 
 import android.annotation.SuppressLint
 import android.app.Service
+import android.app.UiModeManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -158,6 +159,19 @@ class CarDepartureMonitorService : Service() {
                     }
                 }
 
+                UiModeManager.ACTION_ENTER_CAR_MODE -> {
+                    app.container.androidAutoMonitor.syncExternalState(AndroidAutoConnectionType.ANDROID_AUTO)
+                    serviceScope.launch {
+                        val settings = app.container.repository.getSettingsOnce()
+                        if (settings.autoMonitorEnabled && settings.triggerOnAndroidAuto) {
+                            val handledByAutoService = AndroidAutoConnectionService.notifyCarModeEntered(this@CarDepartureMonitorService)
+                            if (!handledByAutoService) {
+                                runPresenceScanAndUpdateNotification(TriggerSource.ANDROID_AUTO)
+                            }
+                        }
+                    }
+                }
+
                 BluetoothDevice.ACTION_ACL_CONNECTED -> {
                     val device = IntentCompat.getParcelableExtra(
                         intent,
@@ -171,8 +185,13 @@ class CarDepartureMonitorService : Service() {
                         if (!settings.autoMonitorEnabled || !settings.triggerOnCarBluetooth) return@launch
 
                         val targetCarMac = settings.carBluetoothAddress.uppercase()
+                        val monitoredMacs = app.container.repository.getMonitoredPhonesOnce()
+                            .map { it.macAddress.uppercase() }
+                            .toSet()
                         val matchesSelectedCar = targetCarMac.isNotBlank() && connectedMac == targetCarMac
-                        val matchesAnyCarAudio = targetCarMac.isBlank() && app.container.scannerEngine.isCarAudioDevice(device)
+                        val matchesAnyCarAudio = targetCarMac.isBlank() &&
+                            connectedMac !in monitoredMacs &&
+                            app.container.scannerEngine.isCarAudioDevice(device)
 
                         if (matchesSelectedCar || matchesAnyCarAudio) {
                             runPresenceScanAndUpdateNotification(TriggerSource.CAR_BLUETOOTH)
@@ -206,9 +225,9 @@ class CarDepartureMonitorService : Service() {
 
         val adapterReady = bluetoothAdapter?.isEnabled == true
         val initialStatus = if (adapterReady) {
-            "BluetoothAdapter aktif • Memantau smartphone terdaftar"
+            "BluetoothAdapter aktif • Memantau perangkat terdaftar"
         } else {
-            "Menunggu Bluetooth aktif untuk memindai ponsel"
+            "Menunggu Bluetooth aktif untuk memindai perangkat"
         }
 
         val notification = app?.container?.notifier?.buildMonitorForegroundNotification(initialStatus)
@@ -274,7 +293,7 @@ class CarDepartureMonitorService : Service() {
                             lastStatusText = "Siaga pemicu mesin (scan berkala nonaktif)"
                         )
                     }
-                    updateForegroundNotification("Menunggu pemicu mesin mobil (Bluetooth / Daya ACC)")
+                    updateForegroundNotification("Menunggu pemicu otomatis (Android Auto / Sentral / ACC)")
                     return@launch
                 }
 
@@ -284,11 +303,14 @@ class CarDepartureMonitorService : Service() {
                 val monitored = app.container.repository.getMonitoredPhonesOnce()
                 val adapterEnabled = bluetoothAdapter?.isEnabled == true
 
+                // Maintain stable passive autoConnect=true BLE keep-alive for bonded iPhones
+                app.container.scannerEngine.syncIphoneKeepAlive(enabled = adapterEnabled && monitored.isNotEmpty())
+
                 if (monitored.isNotEmpty() && adapterEnabled) {
                     runPresenceScanAndUpdateNotification(TriggerSource.BACKGROUND_PERIODIC)
                 } else {
                     val statusMsg = when {
-                        monitored.isEmpty() -> "Mode $profileLabel • Belum ada smartphone terdaftar"
+                        monitored.isEmpty() -> "Mode $profileLabel • Belum ada perangkat terdaftar"
                         else -> "Mode $profileLabel • Menunggu Bluetooth menyala"
                     }
                     _telemetry.update {
@@ -323,10 +345,10 @@ class CarDepartureMonitorService : Service() {
         val now = System.currentTimeMillis()
 
         val statusLine = when {
-            summary == null -> "Belum ada smartphone terdaftar untuk dipantau"
+            summary == null -> "Belum ada perangkat terdaftar untuk dipantau"
             summary.status == CheckStatus.BT_UNAVAILABLE -> "Bluetooth tidak aktif saat pemeriksaan"
             summary.status == CheckStatus.ALL_PRESENT ->
-                "Semua ponsel terdeteksi (${summary.detectedAddresses.size}/${summary.totalMonitored})"
+                "Semua perangkat terdeteksi (${summary.detectedAddresses.size}/${summary.totalMonitored})"
             else -> {
                 val missingNames = summary.missingPhones.joinToString(", ") { it.ownerLabel }
                 "Tidak terdeteksi (${summary.missingPhones.size}): $missingNames"
@@ -363,6 +385,7 @@ class CarDepartureMonitorService : Service() {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+            addAction(UiModeManager.ACTION_ENTER_CAR_MODE)
         }
         try {
             ContextCompat.registerReceiver(
@@ -381,6 +404,9 @@ class CarDepartureMonitorService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         periodicScanJob?.cancel()
+        val app = application as? SiagaApp
+        app?.container?.scannerEngine?.stopAllScanning()
+        app?.container?.scannerEngine?.stopIphoneKeepAlive()
         _isRunning.value = false
         _telemetry.update {
             it.copy(

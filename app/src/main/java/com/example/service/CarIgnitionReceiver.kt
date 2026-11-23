@@ -1,5 +1,6 @@
 package com.example.service
 
+import android.app.UiModeManager
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -48,6 +49,30 @@ class CarIgnitionReceiver : BroadcastReceiver() {
                         }
                     }
 
+                    UiModeManager.ACTION_ENTER_CAR_MODE -> {
+                        app.container.androidAutoMonitor.syncExternalState(AndroidAutoConnectionType.ANDROID_AUTO)
+                        val settings = app.container.repository.getSettingsOnce()
+                        if (settings.autoMonitorEnabled && settings.triggerOnAndroidAuto) {
+                            val startedAutoService = AndroidAutoConnectionService.notifyCarModeEntered(context)
+                            if (!startedAutoService) {
+                                app.container.scannerEngine.startCabinDepartureCheck(TriggerSource.ANDROID_AUTO)
+                            }
+                        }
+                    }
+
+                    UiModeManager.ACTION_EXIT_CAR_MODE -> {
+                        app.container.androidAutoMonitor.refreshConnectionState(allowTrigger = false)
+                        AndroidAutoConnectionService.notifyCarModeExited(context)
+                    }
+
+                    AndroidAutoConnectionMonitor.ACTION_CAR_CONNECTION_UPDATED -> {
+                        app.container.androidAutoMonitor.refreshConnectionState(allowTrigger = true)
+                        val settings = app.container.repository.getSettingsOnce()
+                        if (settings.autoMonitorEnabled && settings.triggerOnAndroidAuto) {
+                            AndroidAutoConnectionService.start(context)
+                        }
+                    }
+
                     BluetoothDevice.ACTION_ACL_CONNECTED -> {
                         val device = IntentCompat.getParcelableExtra(
                             intent,
@@ -59,8 +84,11 @@ class CarIgnitionReceiver : BroadcastReceiver() {
                         if (!settings.autoMonitorEnabled || !settings.triggerOnCarBluetooth) return@launch
 
                         val targetCarMac = settings.carBluetoothAddress.uppercase()
+                        val monitoredMacs = app.container.repository.getMonitoredPhonesOnce()
+                            .map { it.macAddress.uppercase() }
+                            .toSet()
                         val matchesCar = (targetCarMac.isNotBlank() && connectedMac == targetCarMac) ||
-                            (targetCarMac.isBlank() && app.container.scannerEngine.isCarAudioDevice(device))
+                            (targetCarMac.isBlank() && connectedMac !in monitoredMacs && app.container.scannerEngine.isCarAudioDevice(device))
 
                         if (matchesCar) {
                             val startedService = CarDepartureMonitorService.triggerImmediateScan(

@@ -67,6 +67,7 @@ data class AppSettings(
     val scanPowerProfile: ScanPowerProfile = ScanPowerProfile.BALANCED,
     val periodicScanIntervalSeconds: Int = 60,
     val triggerOnCarBluetooth: Boolean = true,
+    val triggerOnAndroidAuto: Boolean = true,
     val carBluetoothAddress: String = "",
     val carBluetoothName: String = "",
     val triggerOnPowerConnected: Boolean = true,
@@ -85,6 +86,7 @@ class SettingsRepository(private val context: Context) {
         val SCAN_POWER_PROFILE = stringPreferencesKey("scan_power_profile")
         val PERIODIC_SCAN_INTERVAL = intPreferencesKey("periodic_scan_interval_sec")
         val TRIGGER_CAR_BT = booleanPreferencesKey("trigger_car_bt")
+        val TRIGGER_ANDROID_AUTO = booleanPreferencesKey("trigger_android_auto")
         val CAR_BT_ADDRESS = stringPreferencesKey("car_bt_address")
         val CAR_BT_NAME = stringPreferencesKey("car_bt_name")
         val TRIGGER_POWER = booleanPreferencesKey("trigger_power")
@@ -103,6 +105,7 @@ class SettingsRepository(private val context: Context) {
             scanPowerProfile = profile,
             periodicScanIntervalSeconds = (prefs[Keys.PERIODIC_SCAN_INTERVAL] ?: profile.defaultIntervalSeconds).coerceIn(30, 300),
             triggerOnCarBluetooth = prefs[Keys.TRIGGER_CAR_BT] ?: true,
+            triggerOnAndroidAuto = prefs[Keys.TRIGGER_ANDROID_AUTO] ?: true,
             carBluetoothAddress = prefs[Keys.CAR_BT_ADDRESS] ?: "",
             carBluetoothName = prefs[Keys.CAR_BT_NAME] ?: "",
             triggerOnPowerConnected = prefs[Keys.TRIGGER_POWER] ?: true,
@@ -137,6 +140,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setTriggerOnCarBluetooth(enabled: Boolean) {
         context.siagaDataStore.edit { it[Keys.TRIGGER_CAR_BT] = enabled }
+    }
+
+    suspend fun setTriggerOnAndroidAuto(enabled: Boolean) {
+        context.siagaDataStore.edit { it[Keys.TRIGGER_ANDROID_AUTO] = enabled }
     }
 
     suspend fun setCarBluetoothDevice(address: String, name: String) {

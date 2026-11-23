@@ -109,7 +109,20 @@ class SiagaRepository(
     suspend fun setScanPowerProfile(profile: ScanPowerProfile) = settingsRepository.setScanPowerProfile(profile)
     suspend fun setPeriodicScanIntervalSeconds(seconds: Int) = settingsRepository.setPeriodicScanIntervalSeconds(seconds)
     suspend fun setTriggerOnCarBluetooth(enabled: Boolean) = settingsRepository.setTriggerOnCarBluetooth(enabled)
-    suspend fun setCarBluetoothDevice(address: String, name: String) = settingsRepository.setCarBluetoothDevice(address, name)
+    suspend fun setTriggerOnAndroidAuto(enabled: Boolean) = settingsRepository.setTriggerOnAndroidAuto(enabled)
+
+    suspend fun setCarBluetoothDevice(address: String, name: String) {
+        val normalized = RegisteredPhoneEntity.normalizeMacAddress(address)
+        settingsRepository.setCarBluetoothDevice(normalized, name)
+        phoneDao.deletePhoneByMac(normalized)
+    }
+
+    suspend fun promoteToCentralDevice(address: String, name: String) {
+        val normalized = RegisteredPhoneEntity.normalizeMacAddress(address)
+        settingsRepository.setCarBluetoothDevice(normalized, name.ifBlank { "Perangkat Sentral" })
+        phoneDao.deletePhoneByMac(normalized)
+    }
+
     suspend fun clearCarBluetoothDevice() = settingsRepository.clearCarBluetoothDevice()
     suspend fun setTriggerOnPowerConnected(enabled: Boolean) = settingsRepository.setTriggerOnPowerConnected(enabled)
     suspend fun setScanDurationSeconds(seconds: Int) = settingsRepository.setScanDurationSeconds(seconds)

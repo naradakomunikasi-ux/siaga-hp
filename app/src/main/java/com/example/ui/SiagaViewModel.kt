@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.SiagaApp
+import com.example.bluetooth.AppleBluetoothHelper
 import com.example.bluetooth.BluetoothEngineState
 import com.example.bluetooth.BluetoothPermissionHelper
 import com.example.bluetooth.ScanMode
@@ -18,6 +19,9 @@ import com.example.data.local.TriggerSource
 import com.example.data.prefs.AppSettings
 import com.example.data.prefs.ScanPowerProfile
 import com.example.data.prefs.ThemeMode
+import com.example.service.AndroidAutoConnectionService
+import com.example.service.AndroidAutoConnectionType
+import com.example.service.AndroidAutoServiceState
 import com.example.service.BackgroundServiceTelemetry
 import com.example.service.CarDepartureMonitorService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,6 +52,8 @@ data class SiagaUiState(
     val settings: AppSettings = AppSettings(),
     val btState: BluetoothEngineState = BluetoothEngineState(),
     val serviceTelemetry: BackgroundServiceTelemetry = BackgroundServiceTelemetry(),
+    val androidAutoState: AndroidAutoConnectionType = AndroidAutoConnectionType.NOT_CONNECTED,
+    val androidAutoServiceState: AndroidAutoServiceState = AndroidAutoServiceState(),
     val isMonitorServiceRunning: Boolean = false,
     val hasBluetoothPermissions: Boolean = false,
     val hasNotificationPermission: Boolean = false
@@ -73,6 +79,7 @@ class SiagaViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = app.container.repository
     private val scannerEngine = app.container.scannerEngine
     private val notifier = app.container.notifier
+    private val androidAutoMonitor = app.container.androidAutoMonitor
 
     private val permissionTrigger = MutableStateFlow(0)
 
@@ -88,12 +95,19 @@ class SiagaViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<SiagaUiState> = combine(
         baseDataFlow,
         CarDepartureMonitorService.telemetry,
+        androidAutoMonitor.connectionState,
+        AndroidAutoConnectionService.serviceState,
         permissionTrigger
-    ) { base, telemetry, _ ->
+    ) { base, telemetry, autoState, autoServiceState, _ ->
         val hasBtPerm = BluetoothPermissionHelper.hasBluetoothPermissions(app)
         val hasNotifPerm = BluetoothPermissionHelper.hasNotificationPermission(app)
         val phoneItems = base.phones.map { entity ->
             mapPhoneToUiItem(entity, base.btState)
+        }
+        val effectiveAutoState = when {
+            autoServiceState.connectionType.isConnected -> autoServiceState.connectionType
+            autoServiceState.isCarModeActive -> AndroidAutoConnectionType.ANDROID_AUTO
+            else -> autoState
         }
         SiagaUiState(
             phones = phoneItems,
@@ -101,6 +115,8 @@ class SiagaViewModel(application: Application) : AndroidViewModel(application) {
             settings = base.settings,
             btState = base.btState,
             serviceTelemetry = telemetry,
+            androidAutoState = effectiveAutoState,
+            androidAutoServiceState = autoServiceState,
             isMonitorServiceRunning = telemetry.isRunning,
             hasBluetoothPermissions = hasBtPerm,
             hasNotificationPermission = hasNotifPerm
@@ -200,16 +216,24 @@ class SiagaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshBluetoothState() {
         scannerEngine.refreshHardwareAndPairedState()
+        androidAutoMonitor.refreshConnectionState(allowTrigger = false)
         permissionTrigger.value += 1
     }
 
     fun syncMonitoringServiceWithSettings() {
         viewModelScope.launch {
             val settings = repository.getSettingsOnce()
-            if (settings.autoMonitorEnabled && BluetoothPermissionHelper.hasBluetoothPermissions(app)) {
+            val hasPerms = BluetoothPermissionHelper.hasBluetoothPermissions(app)
+            if (settings.autoMonitorEnabled && hasPerms) {
                 CarDepartureMonitorService.start(app)
+                if (settings.triggerOnAndroidAuto) {
+                    AndroidAutoConnectionService.start(app)
+                } else {
+                    AndroidAutoConnectionService.stop(app)
+                }
             } else if (!settings.autoMonitorEnabled) {
                 CarDepartureMonitorService.stop(app)
+                AndroidAutoConnectionService.stop(app)
             }
         }
     }
@@ -222,12 +246,27 @@ class SiagaViewModel(application: Application) : AndroidViewModel(application) {
         scannerEngine.startCabinDepartureCheck(TriggerSource.IGNITION_POWER)
     }
 
+    fun triggerAndroidAutoScanScript() {
+        val started = AndroidAutoConnectionService.triggerAutoScanCheck(app)
+        if (!started) {
+            scannerEngine.startCabinDepartureCheck(TriggerSource.ANDROID_AUTO)
+        }
+    }
+
     fun stopScanning() {
         scannerEngine.stopAllScanning()
     }
 
     fun startNearbyDiscovery() {
         scannerEngine.startNearbyDiscovery()
+    }
+
+    fun pairBluetoothDevice(address: String) {
+        scannerEngine.pairDevice(address)
+    }
+
+    fun testPhoneConnection(macAddress: String, displayName: String) {
+        scannerEngine.testPhoneConnection(macAddress, displayName)
     }
 
     fun registerOrUpdatePhone(
@@ -247,19 +286,27 @@ class SiagaViewModel(application: Application) : AndroidViewModel(application) {
                 rssiThreshold = rssiThreshold,
                 isMonitored = isMonitored
             )
+            if (CarDepartureMonitorService.isRunning.value) {
+                scannerEngine.syncIphoneKeepAlive(true)
+            }
         }
     }
 
     fun quickRegisterScannedDevice(device: ScannedBluetoothDevice) {
         viewModelScope.launch {
+            val isApple = device.isAppleDevice || AppleBluetoothHelper.isLikelyAppleDevice(device.name)
+            val inferredCategory = PhoneCategory.inferFromDevice(device.name, device.isLikelyCarAudio)
             repository.registerOrUpdatePhone(
                 macAddress = device.address,
                 deviceName = device.name,
                 ownerLabel = device.name,
-                category = PhoneCategory.PRIMARY,
-                rssiThreshold = -88,
+                category = inferredCategory,
+                rssiThreshold = if (isApple) -95 else -88,
                 isMonitored = true
             )
+            if (CarDepartureMonitorService.isRunning.value) {
+                scannerEngine.syncIphoneKeepAlive(true)
+            }
         }
     }
 
@@ -267,18 +314,23 @@ class SiagaViewModel(application: Application) : AndroidViewModel(application) {
         if (devices.isEmpty()) return
         viewModelScope.launch {
             val entities = devices.map { device ->
+                val isApple = device.isAppleDevice || AppleBluetoothHelper.isLikelyAppleDevice(device.name)
+                val inferredCategory = PhoneCategory.inferFromDevice(device.name, device.isLikelyCarAudio)
                 RegisteredPhoneEntity(
                     macAddress = RegisteredPhoneEntity.normalizeMacAddress(device.address),
                     deviceName = device.name.ifBlank { "Perangkat Bluetooth" },
-                    ownerLabel = device.name.ifBlank { "Smartphone" },
-                    category = PhoneCategory.PRIMARY.name,
+                    ownerLabel = device.name.ifBlank { inferredCategory.label },
+                    category = inferredCategory.name,
                     isMonitored = true,
-                    rssiThreshold = -88,
+                    rssiThreshold = if (isApple) -95 else -88,
                     lastSeenTimestamp = device.lastSeenAt,
                     lastRssi = device.rssi
                 )
             }
             repository.registerMultiplePhones(entities)
+            if (CarDepartureMonitorService.isRunning.value) {
+                scannerEngine.syncIphoneKeepAlive(true)
+            }
         }
     }
 
@@ -300,6 +352,12 @@ class SiagaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun promoteToCentralDevice(address: String, name: String) {
+        viewModelScope.launch {
+            repository.promoteToCentralDevice(address, name)
+        }
+    }
+
     fun clearCarBluetoothDevice() {
         viewModelScope.launch {
             repository.clearCarBluetoothDevice()
@@ -309,10 +367,15 @@ class SiagaViewModel(application: Application) : AndroidViewModel(application) {
     fun setAutoMonitorEnabled(enabled: Boolean) {
         viewModelScope.launch {
             repository.setAutoMonitorEnabled(enabled)
+            val settings = repository.getSettingsOnce()
             if (enabled) {
                 CarDepartureMonitorService.start(app)
+                if (settings.triggerOnAndroidAuto) {
+                    AndroidAutoConnectionService.start(app)
+                }
             } else {
                 CarDepartureMonitorService.stop(app)
+                AndroidAutoConnectionService.stop(app)
             }
         }
     }
@@ -340,6 +403,18 @@ class SiagaViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setTriggerOnCarBluetooth(enabled: Boolean) {
         viewModelScope.launch { repository.setTriggerOnCarBluetooth(enabled) }
+    }
+
+    fun setTriggerOnAndroidAuto(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setTriggerOnAndroidAuto(enabled)
+            val settings = repository.getSettingsOnce()
+            if (enabled && settings.autoMonitorEnabled && BluetoothPermissionHelper.hasBluetoothPermissions(app)) {
+                AndroidAutoConnectionService.start(app)
+            } else {
+                AndroidAutoConnectionService.stop(app)
+            }
+        }
     }
 
     fun setTriggerOnPowerConnected(enabled: Boolean) {

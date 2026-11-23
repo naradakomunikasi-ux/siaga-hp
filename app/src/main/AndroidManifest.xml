@@ -33,6 +33,11 @@
         android:name="android.hardware.bluetooth_le"
         android:required="false" />
 
+    <!-- Allow querying official Android Auto CarConnection state on Android 11+ -->
+    <queries>
+        <provider android:authorities="androidx.car.app.connection" />
+    </queries>
+
     <application
         android:name=".SiagaApp"
         android:allowBackup="true"
@@ -62,13 +67,27 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
-        <!-- Receiver for car Bluetooth connection & power ignition events -->
+        <!-- Dedicated Foreground Service for Android Auto / Car Mode detection & auto-scan trigger -->
+        <service
+            android:name=".service.AndroidAutoConnectionService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!-- Declare Android Auto notification integration -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
+        <!-- Receiver for car Bluetooth, Android Auto Car Mode, & power ignition events -->
         <receiver
             android:name=".service.CarIgnitionReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
                 <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
+                <action android:name="android.app.action.ENTER_CAR_MODE" />
+                <action android:name="android.app.action.EXIT_CAR_MODE" />
+                <action android:name="androidx.car.app.connection.action.CAR_CONNECTION_UPDATED" />
                 <action android:name="com.example.ACTION_TRIGGER_DEPARTURE_CHECK" />
                 <action android:name="com.example.ACTION_DISMISS_ALERT" />
             </intent-filter>

@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -39,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -104,6 +106,7 @@ fun SiagaMainScreen(
     val currentRoute = navBackStackEntry?.destination?.route ?: ROUTE_DASHBOARD
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
     var showAboutDialog by remember { mutableStateOf(false) }
 
     // Permission launcher for Bluetooth + Notification permissions
@@ -166,6 +169,15 @@ fun SiagaMainScreen(
             } catch (_: Exception) {
                 viewModel.refreshBluetoothState()
             }
+        }
+    }
+
+    val openBluetoothSettings: () -> Unit = {
+        runCatching {
+            val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
         }
     }
 
@@ -281,7 +293,23 @@ fun SiagaMainScreen(
                                 onBatchRegisterDevices = viewModel::registerMultipleScannedDevices,
                                 onDeletePhone = viewModel::deletePhone,
                                 onSetCarBluetooth = viewModel::setCarBluetoothDevice,
+                                onPromoteToCentral = viewModel::promoteToCentralDevice,
                                 onClearCarBluetooth = viewModel::clearCarBluetoothDevice,
+                                onPairDevice = { address ->
+                                    if (!uiState.hasBluetoothPermissions) {
+                                        requestAllPermissions()
+                                    } else {
+                                        viewModel.pairBluetoothDevice(address)
+                                    }
+                                },
+                                onTestPhoneConnection = { mac, label ->
+                                    if (!uiState.hasBluetoothPermissions) {
+                                        requestAllPermissions()
+                                    } else {
+                                        viewModel.testPhoneConnection(mac, label)
+                                    }
+                                },
+                                onOpenBluetoothSettings = openBluetoothSettings,
                                 onRequestPermissions = requestAllPermissions,
                                 onRequestEnableBluetooth = requestEnableBluetooth
                             )
@@ -300,6 +328,14 @@ fun SiagaMainScreen(
                                 onSelectScanPowerProfile = viewModel::setScanPowerProfile,
                                 onSelectPeriodicInterval = viewModel::setPeriodicScanIntervalSeconds,
                                 onToggleCarBtTrigger = viewModel::setTriggerOnCarBluetooth,
+                                onToggleAndroidAutoTrigger = viewModel::setTriggerOnAndroidAuto,
+                                onTriggerAndroidAutoScan = {
+                                    if (!uiState.hasBluetoothPermissions) {
+                                        requestAllPermissions()
+                                    } else {
+                                        viewModel.triggerAndroidAutoScanScript()
+                                    }
+                                },
                                 onTogglePowerTrigger = viewModel::setTriggerOnPowerConnected,
                                 onScanDurationChange = viewModel::setScanDurationSeconds,
                                 onToggleVoiceAlert = viewModel::setVoiceAlertEnabled,
